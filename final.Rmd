@@ -1,0 +1,485 @@
+---
+title: "Analyzing Tobacco Usage in the US from 2000 - Present"
+author: "Aravind Koneru"
+date: "May 13, 2018"
+output: 
+  html_document:
+    theme: lumen
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(gridExtra)
+library(ggplot2)
+library(tidyverse)
+library(broom)
+theme_set(theme_light())
+```
+
+# Overview
+
+The purpose of this tutorial is to provide you with a basic understanding of the entire data science pipeline from collecting and cleaning data to developing machine learning solutions. For the sake of this tutorial we are going to be using publicly available tobacco usage data from data.gov. This tutorial assumes a basic understanding of R so there might be a few things left unexplained under the assumption that the reader understands what is happening (everything in this tutorial is fairly simple and any questions that arise can be often resolved by a quick google search). 
+
+This tutorial is split into two parts, the first half goes through some basic data manipulation techniques and graph generation techniques. The purpose of the first half of this tutorial is to help you become familiar with using R and to make it easier to discuss more complicated topics in the second half without the need to explain every detail. Part 1 uses a simpler dataset than the second part to make it as easy as possible to identify what is being done and it is easier to verify the accuracy of our analyses with the smaller dataset. Part 2 uses a more complex dataset but it enables us to explore concepts like hypothesis testing and machine learning further than the simple dataset. 
+
+In this tutorial, we are going to use the datasets related to tobacco usage in the United States. Tobacco has been steadily loosing popularity in the US, but it is still a multi-billion dollar market. As such, there is value for both sides (industry and medical professionals) to want to study tobacco usage and risk factors. Medical professionals care about the risk factors associated with smoking tobacco and identifying the most prevalent factor that leads to tobacco usage. Tobacco companies on the other hand, want to figure out to maximize sales and push new products on a market that is rejecting combustible tobacco culture. 
+
+## Goals
+
+By the end of this tutorial you should...
+
+* understand how to use different tidyverse packages
+* know how to create graphs and visualize trends in R
+* be able to use linear regression to further analyze data
+
+## Tools/Libraries
+
+We are going to need the following tools/libraries:
+
+* [RStudio](https://www.rstudio.com)
+* [Tidyverse Library](https://www.tidyverse.org/)
+* [gridExtra](https://cran.r-project.org/web/packages/gridExtra/index.html)
+* [scales](https://github.com/hadley/scales)
+
+You can install any of the above packages by simply calling `install.packages("<library_name>")`
+
+Since we are going to be working with public data available from data.gov, you can and should download both the datasets we will be using. 
+
+* [Part 1 Dataset](https://catalog.data.gov/dataset/adult-tobacco-consumption-in-the-u-s-2000-present)
+* [Part 2 Dataset](https://catalog.data.gov/dataset/behavioral-risk-factor-data-tobacco-use-2011-to-present-e0ad1)
+
+
+# Part 1
+
+## Data Collection and Cleaning
+
+### Introduction
+
+When choosing your data source, it is important to consider the methods that were used to collect the data and the reliability of the data. All the methods that we are going to be using will be ineffective if the data you are working with is inherently wrong or biased. Generally, datasets from reliable sources such as the government or other established organizations are safe to use without further auditing, but you should always be wary of how biases in data collection can affect your analysis. Fortunately, we are going to be working with a dataset from the Center for Disease Control, so we do not need to second guess the accuracy or validity of the data points. 
+
+### Importing Data
+
+The first step in any data analysis process is to import the dataset into R and to then clean the data so that it can be used in analysis. Let's start with loading the data into R using tidyverse. The steps required to load external data into R using tidyverse goes as follows:
+
+1. Put the external data in the same directory as the R script
+2. Turn the external data into a dataframe using one of the readr:read_*() functions. 
+
+readr is a library that is included in tidyverse and it contains the following read functions:
+
+* read_csv(): .csv files
+* read_tsv(): .tsv files
+* read_delim(): general delimited files
+* read_fwf(): fixed width files
+* read_table(): tabular files where columns are separated by white-space
+* read_log(): web log files
+
+If you would like to learn more about readr, check out its [github page](https://github.com/tidyverse/readr)
+
+The following code-snippet assumes that the .csv file we downloaded earlier from data.gov is in the same directory as the R script. At the end of this snippet, tob_df represents a _dataframe_ containing the data from the .csv file. A dataframe encapsulates the idea of entities in rows and attributes in the columns. These dataframes are often called rectangular datasets since they are rectangular in shape. The layout of the dataframe should look familiar and much easier to understand than the raw values present in the original csv file. Additionally, when converting the csv into a dataframe, readr assigns a type for each column. These type definitions are helpful to us since they explicitly list out the kind of data present in each column.
+
+```{r import_data, message=FALSE}
+library(tidyverse)
+
+csv_loc <- "Adult_Tobacco_Consumption_In_The_U.S.__2000-Present.csv"
+tob_df <- read_csv(csv_loc)
+
+tob_df
+```
+
+### Cleaning Data
+
+ Now that we have a dataframe, you may feel ready to start doing analysis using the data, but we must clean the data first. Looking at our dataframe, it doesn't look like we need the LocationAbbrev or LocationDesc columns since the only values present in those two columns are "US" and "National" respectively. Since these columns are not adding any value or providing more context, we can simply remove them. In the following code-snippet, we remove the LocationAbbrev and LocationDesc columns using dplyr functions. Using `select(-c(LocationAbbrev, LocationDesc))` means that we want to select all the columns except LocationAbbrev and LocationDesc. Further, the `%>%` symbol is a pipe and effectively just passes the dataframe to the next function in the pipe. For example, the `select` function receieves tob_df as an argument.   
+ 
+```{r clean_data}
+clean_tob_df <- tob_df %>%
+  select(-c(LocationAbbrev, LocationDesc))
+
+clean_tob_df
+```
+
+Now that we have a dataframe without any extraneous information, we can begin to look at some of the trends within the data. Fortunately, our data comes from a reliable source and is well-formatted but this is sometimes not the case. The term used to describe data in the above format is _tidy data_. For the sake of this tutorial, we don't need to know what the specific requirements of tidy data is or how to turn dirty data into tidy data, but you can [learn more about tidy data from the R Project website](https://cran.r-project.org/web/packages/tidyr/vignettes/tidy-data.html).
+
+__Note__: While we this dataset does not have any missing values, it is important to address this issue if data is missing. Generally, missing data can be encoded as NA by R and will be automatically ignored in any calculations involving that specific data point. That being said, if a significant number of data points are encoded as NA, the resulting analysis may not be valid or represent the actual data well.  
+
+## Exploratory Data Analysis
+
+### Introduction
+
+Exploratory Data Analysis (abbreviated EDA) is essentially the process of identifying and clearly depicting relationships between variables. The ultimate goal of EDA is to help us identify variable properties such as:
+
+* mean
+* variance
+* skew
+* outliers
+
+We can use these properties later on to justify modeling strategies. 
+
+### Creating a Simple Linechart
+
+Let's start with a simple example of looking at the relationship between population and year. We can create graphs using the ggplot2 library. Let's look at an example graph that plots Population vs. Year.
+
+```{r population_graph, message=FALSE, echo=FALSE}
+library(ggplot2)
+library(scales)
+
+clean_tob_df %>%
+  group_by(Year) %>% 
+  ggplot(aes(x=Year, y=Population)) + # pick the variables we want to display
+  geom_line() + # pick the geometric representation of the data points
+  labs(x = "Year",
+       y = "Population",
+       title = "Population vs Year") + # add labels for the axes and a title to the graph
+  scale_y_continuous(labels = comma) # format the numbers on the y-axis
+```
+
+This graph shows us how population has changed overtime. Clearly, population has been increasing as time goes on. While this graph simply confirmed our original idea, there is alot of code necessary to generate this graph when compared to the amount of code required to load and clean the dataframe. Let's start working on the code necesary to generate the graph from above. The first step is group the data by year:
+
+```{r group_by, message=FALSE}
+clean_tob_df %>%
+  group_by(Year)
+```
+
+We use the `group_by` function to treat all the elements of the same year as one group. This means that internally, R understands that when we're talking about the year 2000, we are talking about all the 
+rows in the table with Year = 2000. If it helps, you can visually/conceptually think of `group_by` as the following:
+
+```{r arrange, message=FALSE}
+clean_tob_df %>%
+  group_by(Year) %>%
+  arrange(Year)
+```
+
+In this table, all the rows with year 2000 are both grouped (internally) and arranged (visually) by their year.
+
+Now that we understand what grouping is, we can begin to look at how a graph is generated and formatted.  
+
+```{r empty_g, message=FALSE}
+library(ggplot2)
+
+clean_tob_df %>%
+  group_by(Year) %>% 
+  ggplot(aes(x=Year, y=Population))
+```
+
+Let's look at the part of the code where we use `ggplot(aes(x=Year, y=Population))`. This command is what effectively generates the graph. In `aes(x=Year, y=Population)`, we setting the values that the X and Y axes should draw upon. Effectively, we are pointing the x-axis to the Year column and the y-axis to the Population column. Unfortunately, this alone is not enough to print out the graph as you can see. In order to actually see the points, we need to assign a _geometric representation_ to each of the data points in the graph.     
+
+```{r graph_build, message=FALSE}
+library(ggplot2)
+library(scales)
+library(gridExtra)
+
+plot1 <- clean_tob_df %>%
+  group_by(Year) %>% 
+  ggplot(aes(x=Year, y=Population)) +
+  geom_line()
+
+plot2 <- clean_tob_df %>%
+  group_by(Year) %>% 
+  ggplot(aes(x=Year, y=Population)) +
+  geom_point()
+
+grid.arrange(plot1, plot2, ncol=2)
+```
+
+Looking at the code, the only difference between the two plots is that one uses `geom_line()` and the other uses `geom_point()`. The data being represented is the same, but what differs is the _geometric representation_ of the data. Geometric representation is the term used to describe the type of graphic used to represent data points. You may notice that this graph also lacks the title and the numbers of the y-axis are in scientific notation as opposed to raw numbers. All these differences are caused by using different formatting schemes on the graph. The data being represented stays consistent, but the visual aspect of the graph can change to make it easier/harder to understand the relationships between the variables. 
+
+__Note__: If you are following along with this tutorial, you do not need to worry about using the gridExtra library or the `grid.arrange()` function. I used this function to display the two graphs side by side so it would easier to see the difference between the two geometric representations. 
+
+Let's address the formatting issues that we noticed earlier by adding in the missing elements:
+
+```{r f_population_graph, message=FALSE}
+library(ggplot2)
+library(scales)
+
+clean_tob_df %>%
+  group_by(Year) %>% 
+  ggplot(aes(x=Year, y=Population)) + # pick the variables we want to display
+  geom_line() + # pick the geometric representation of the data points
+  labs(x = "Year",
+       y = "Population",
+       title = "Population vs Year") + # add labels for the axes and a title to the graph
+  scale_y_continuous(labels = comma) # format the numbers on the y-axis
+```
+
+Now we have the same graph as we saw earlier! The comments in the code should make it clear what each of the lines in the code is doing. As a quick rundown, the `labs()` function is used to assign labels to the different axes and a title. Additionally, the `scale_y_continuous()` command is used to change the y-axis from using scientific notation to writing out the whole number (while optional, I find that this can sometimes make it easier to understand the graph). 
+
+### Generating a More Complicated Linechart
+
+Let's do a slightly more complicated analysis to answer the question: How have the popularity of combustible and non-combustable tobacco changed over time?
+
+The first step to answering this question figuring out the best to numerically represent popularity. In this case, we can measure the "popularity" of a combustible tobacco and noncombustible tobacco by measuring how many units of each are sold per year. Fortunately, the dataframe provides a measure for the number of total combustible tobacco products sold per year so we can use that value, but we need to manually calculate the number of noncombustible products sold each year. 
+
+Let's start by creating a new dataframe from `clean_tob_df`:
+
+```{r g2_df}
+g2_df <- clean_tob_df %>%
+  subset(Measure=="All Combustibles" | Topic=="Noncombustible Tobacco") %>% # pick rows that either represent all combustibles or noncombustible tobacco
+  group_by(Year, Topic) %>% # group the data by year and topic
+  mutate(g_total=sum(Total)) %>% # get grand total for yearly sales
+  select(Year, Topic, g_total) %>% # only select the columns we care about to make reading the dataframe easier
+  distinct %>% # remove any duplicate rows so that we only have one entry for each year's totals for Combustible and Noncombustible tobacco
+  arrange(Year) # arrange data by year to make it easier to read
+
+g2_df
+```
+
+Let's go through each step of this code line by line to understand the manipulations to the `clean_tob_df` that resulted in `g2_df`:
+
+1. Cherry-picked the rows in the dataframe that either contain the total number of combustible tobacco products sold in a year or a metric about Noncombustible tobacco. 
+2. Grouped the data together by year and then topic so that we can obtain yearly totals for the number of noncombustible products sold
+3. Created a new column to hold the year totals for each group per year
+4. Cherry-picked the Year, Topic, and g_total columns from the table
+5. Removed duplicate rows that aren't necessary
+6. Arranged the data by year so that we can visually verify that we have an entry for Combustible and Noncombustible tobacco every year. 
+
+Now that we have a dataframe that contains the data that we want, we can plot this data to get an answer to our original question. 
+
+```{r g2}
+library(ggplot2)
+library(scales)
+
+g2_df %>%
+  ggplot(aes(x=Year, y=g_total, color=Topic)) + # pick the variables we want to display
+  geom_line() + # pick the geometric representation of the data points
+  labs(x = "Year",
+       y = "Units Sold",
+       title = "Combustible and Noncombustible Tobacco vs Time") + # add labels for the axes and a title to the graph
+  scale_y_continuous(labels = comma) # format the numbers on the y-axis
+```
+
+The code used to plot this graph should look familiar, with the only new item being the introduction of the `color` option in `aes()`. The `color` option allows for different topics to be treated as separate lines. This is useful when we want to compare two different entities on the same attributes. You may have noticed that our plot makes it appear that the number of Noncombustible Tobacco units sold has been effectively 0; however this is not the case. When we plot units of noncombustible tobacco sold we get the following:
+
+```{r non_graph, echo=FALSE}
+g3_df <- clean_tob_df %>%
+  subset(Topic=="Noncombustible Tobacco") %>% # pick rows that either represent all combustibles or noncombustible tobacco
+  group_by(Year, Topic) %>% # group the data by year and topic
+  mutate(g_total=sum(Total)) %>% # get grand total for yearly sales
+  select(Year, Topic, g_total) %>% # only select the columns we care about to make reading the dataframe easier
+  distinct %>% # remove any duplicate rows so that we only have one entry for each year's totals for Combustible and Noncombustible tobacco
+  arrange(Year) # arrange data by year to make it easier to read
+
+g3_df %>%
+  ggplot(aes(x=Year, y=g_total)) + # pick the variables we want to display
+  geom_line() + # pick the geometric representation of the data points
+  labs(x = "Year",
+       y = "Units Sold",
+       title = "Units of Noncombustible Tobacco Sold vs Time") + # add labels for the axes and a title to the graph
+  scale_y_continuous(labels = comma) # format the numbers on the y-axis
+```
+
+So clearly, the number of units of noncombustible tobacco has increased over time, but our previous graph did not show this increase. Why? The primary reason is that the units of combustible tobacco sold are magnitudes greater than the units of noncombustile tobacco sold. The number of units of noncombustible tobacco sold is measured in the hundrededs of millions while the units of combustible tobacco is measured in the hundreds of billions. This highlights the importance of the scaling of the axes and how they can be used to present misleading ideas. 
+
+With both graphs together, we now have enough information to answer our original question. From the plots above, it is clear that there has been a significant decline in combustible tobacco products but a notable increase in the popularity of noncombustible tobacco products. 
+
+### Plotting Practice Exercise
+
+Use what you've learned to create a plot to answer the following question: How has the popularity of different types of combustible tobacco changed over time?
+
+Try to create the plot before looking at the solution below:
+
+```{r exercise_1}
+df_4 <- clean_tob_df %>%
+  filter(Topic=="Combustible Tobacco") %>%
+  filter(!(Measure=="All Combustibles")) %>%
+  group_by(Year, Measure) %>%
+  arrange(Year, Measure) %>%
+  mutate(g_total = sum(Total)) %>%
+  select(Year, Measure, g_total) %>%
+  distinct
+
+df_4 %>%
+  ggplot(aes(x=Year, y=g_total, color=Measure)) +
+  geom_line() + 
+   labs(x = "Year",
+       y = "Units Sold",
+       title = "Popularity of Various Types of Combustible Tobacco vs Time") + 
+  scale_y_continuous(labels = comma)
+```
+
+Further, we could use a bar chart to see the comparisons between the different forms of combustible tobacco per year like so:
+
+```{r exercise_1a}
+df_4 %>%
+  ggplot(aes(Year, g_total)) +
+  geom_bar(stat = "identity", aes(fill=Measure), position="dodge") +
+  labs(x = "Year",
+       y = "Units Sold",
+       title = "Popularity of Various Types of Combustible Tobacco vs Time") +
+  scale_y_continuous(labels = comma)
+  
+
+```
+
+This bar chart serves a different purpose than the line chart we've been using. Bar charts like these are useful when we want to directly compare different categories of the same topic. In this chart, it is easier to compare the sales of different combustible tobacco products over time, but we loose the ability clearly see trends over time for each individual product. When deciding what sort of plot to use, it is important to think about how a plot is going to be helpful and what its purpose is. There are a [variety of different plots](https://corporatefinanceinstitute.com/resources/excel/study/types-of-graphs/) that you can use to represent data, and as a data scientists, the better we are able to represent data, the better we can understand it. 
+
+## Machine Learning/Predicting Data
+
+### Introduction 
+
+Machine Learning sounds like a daunting topic and may appear to be unapproachable, but it is really a simple application of statistics! Machine Learning has two main applications: [regression](https://en.wikipedia.org/wiki/Regression_analysis) and [classification](https://en.wikipedia.org/wiki/Statistical_classification). The goal of classification is to identify the "class" of a data point given attributes that can be used to describe the thing being classified. For example, let's say that I was given a bunch of people to interview and I could only ask them yes/no questions to determine their gender. In this situation, I can rely on my previous knowledge of the different characteristics of men and women. I might ask their name, height, and if their hair is short to determine if they are either male or female. Similarly, with classification machine learning algorithms, you "teach" the machine to expect specific attributes for specific classes. When this is done, the machine has a bank of information to draw from and can make guesses as to what an unknown class is given the same attributes. In a regression machine learning algorithm, our goal is to extend the data so that we can predict future data points.  
+
+Now that we know how to identify and visualize trends in our data, we can begin to use linear regression to further analyze and model our data. In order to guide our study of machine learning we will set out to answer the question: Can we create a model to predict the amount of domestic production given the population size? 
+
+The way that this question is phrased leads us to the conclusion that we should use a regression algorithm in this case instead of a classification algorithm since our goal is to extend the data instead of identify classes of data. As such, we will try to use one of the most popular regression models: linear regression. 
+
+### Determining Fit for Linear Regression
+
+The first thing we need to do is determine how well a linear model captures the relationship between population and domestic production of tobacoo products. We can accomplish this by doing the following:
+
+```{r ML_a}
+df_5 <- clean_tob_df %>%
+  filter(Submeasure=="Total Combustible Tobacco") %>%
+  group_by(Year) %>%
+  arrange(Year) %>%
+  select(Year, Population, Domestic, Imports) %>%
+  distinct
+
+df_5 %>%
+  ggplot(aes(x=Population, y=Domestic)) +
+  geom_point() + 
+  geom_smooth(method=lm) + 
+  labs(x = "Population",
+       y = "Units Domestically Produced",
+       title = "Units Domestically Produced vs Population") +
+  scale_y_continuous(labels = comma) 
+```
+
+Fortunately for us, it looks like there is a linear relationship between domestically produced tobacco products and population size. This makes the two variables good candidates for linear regression. Formally, we say that we are going to _regress_ domestic production _on_ population, meaning that we are going to try to predict domestic production of tobacco products using the population. 
+
+### Creating a Model
+
+Since we are pretty sure that the relationship between domestic production and population is linear, we can create a linear regression model from these two variables. In R, we use the `lm` function to create linear regression models. We can create a model like so:
+
+```{r ML_b}
+model <- df_5 %>%
+  lm(formula = Domestic ~ Population) %>%
+  broom::augment()
+
+model
+
+model %>%
+  ggplot(aes(x=.fitted, y=.resid)) +
+  geom_point() + 
+  labs(x = "Fitted Values",
+       y = "Residual Values",
+       title="Residual vs Fitted")
+
+```
+
+In the above code snippet, we did the following:
+
+* created a linear regression model using lm by setting Domestic as the result of Population
+* Used the broom::augment function to create a table with calculated residual values and other important linear regression statistics
+* Plotted the residuals vs fitted values
+
+At a quick glance from this plot, it is appears that the model we've created isn't good. Ideally, all the dots should cluster around 0 meaning that the amount of error that exists between the actual points and regressed points is minimal. Looking at our plot, it seems that while we're sort of close to 0, alot of the values are far away from 0 and there doesn't seem to be much clustering. In this situation, it is important to take into account the scale of our data. Considering that the majority of points are clustered between -5e+09 and 5e+09, we can say that our model really isn't that bad. An error of 5 or 10 billion is somewhat reasonable when we are dealing with numbers greater than 300 billion. This means that we've created a model that can provide a reasonable estimate as to domestic tobacco production given a population size and recent trends. 
+
+# Part 2
+
+## Introduction
+
+In this part of the tutorial, I am going to gloss over anything that was covered earlier and assume understanding of the above material. I will still include code examples and the such, but will be primarily focusing on explaning the concepts behind hypothesis testing. Our goal with this data is to determine some interesting trends or relationships between the data and to see if we can conclusively say that a categorical variable like race or location has to do with smoking tobacco. 
+
+## Data Collection and Cleaning
+
+Let's input the data like we did previously:
+
+```{r d_input_1, message=FALSE}
+csv <- "Behavioral_Risk_Factor_Data__Tobacco_Use__2011_to_present_.csv"
+risk_df <- read_csv(csv)
+
+risk_df
+```
+
+As you can tell, this dataset contains significantly more datapoints and columns. As such, we should clean up this table first so that it only contains information that we want. 
+
+```{r clean_up}
+clean_df <- risk_df %>%
+  select(-c(StratificationID1, StratificationID2, StratificationID3, StratificationID4)) %>%
+  select(-c(Response, Data_Value_Footnote_Symbol, Data_Value_Unit, DataSource, Data_Value_Footnote)) %>%
+  select(-c(Data_Value_Std_Err, Low_Confidence_Limit, High_Confidence_Limit)) %>%
+  arrange(DisplayOrder) %>%
+  na.omit() %>%
+  filter(DisplayOrder > 30)
+
+clean_df
+```
+
+We cleaned our data by doing the following:
+
+* Removing any columns with NA because we can't use them in our analysis due to small sample sizes
+* Removing extranous columns that aren't necessary for our analysis
+* Filtering the data so that only relevant data (percentages of people who smoke) exists in the dataframe
+
+These measures ensured that our data is clean and ready to be manipulated and analyzed. Now that we've cleaned our data, let's plot the relationship between smokers in each location over time. 
+
+```{r visual_people}
+graph_df <- clean_df %>%
+  filter(grepl("^[0-9]{4}$", YEAR)) %>% # remove entries like 2015-2016
+  mutate(YEAR = as.numeric(YEAR)) %>% # Change year from chars to int
+  group_by(YEAR, LocationAbbr) %>%
+  mutate(raw = Data_Value/100 * Sample_Size) %>%
+  summarise(total_sample = sum(Sample_Size), total_smoke = sum(raw)) %>% # get totals for each grouping
+  mutate(total_perc = total_smoke/total_sample) %>%
+  arrange(YEAR, desc(total_perc)) # organize the data by year then 
+  
+
+knitr::kable(graph_df)
+  
+graph_df %>%
+  ggplot(aes(x=YEAR, y = total_perc, color=LocationAbbr, group=LocationAbbr)) +
+  theme(axis.text.x = element_text(angle=90, hjust=1)) + # formatting to rotate the labels
+  geom_line()  +
+  labs(x = "Year",
+       y = "Percent of Smoking Population",
+       title = "Smoking Prevalence vs Time")
+
+```
+
+Let's break down the code to see how we came to create this graph. The first thing we did was group the data together by year and location and then created a column containing (approximately) the number of people who reported regular smoking in the past 2 years. We then used the `summarize()` function to create a table containing the sums of the sample and smoking population for each Year,Location group. Finally, we added a new column containing the precentage of smokers in each group and arranged the table to make it easier to visually identify the states with the most smokers per year. 
+
+_Note_: We calculated the raw value by simply multiplying the reported percentage with the sample size, and while this is naive, it does a good enough job for us since the majority of the data was within a reasonable margin of error. 
+
+Unfortunately, the graph is too busy for us to be able to figure out what's going on, so let's filter the table to only include states with high percentages of smokers. We can do this by manually identifying the states with the highest percentages and then selecting only those rows. Looking at the table, we see that WV, KY, GU are consistently some of the locations with the highest tobacco use. Let's filter our table based on these locations and plot them as well as a few other states.
+
+```{r spec_locs}
+graph_df %>%
+  filter(LocationAbbr == "KY" | LocationAbbr == "WV" | LocationAbbr == "GU" | LocationAbbr == "ME"
+         | LocationAbbr == "OH" | LocationAbbr == "MI") %>%
+  filter(grepl("^[0-9]{4}$", YEAR)) %>%
+  ggplot(aes(x=YEAR, y = total_perc, color=LocationAbbr, group=LocationAbbr)) +
+  theme(axis.text.x = element_text(angle=90, hjust=1)) + 
+  geom_line() + 
+  labs(x = "Year",
+       y = "Percent of Smoking Population",
+       title = "Smoking Prevalence vs Time")
+```
+
+
+From our plot, it looks like all states are experiencing a downward trend in smoking, but it still remains significantly more popular in some areas compared to others. From just our plot, is it safe to say that smoking has been going down over time? How can we be sure that what we've observed just isn't just statistical noise and that we've discovered a significant relationship?
+
+## Hypothesis Testing
+
+### Introduction
+
+In statistics, there exists a concept of the _null hypothesis_. For example if we want to know if there's a relationship between two variables, we can test the hypothesis that there is no relationship between the two variables. If we are able to reject this hypothesis (generally with a pvalue < .05), then we can say that there is some sort of relationship between the two variables. I understand that this concept might be confusing, so let's do an example. 
+
+### Simple Hypothesis Test
+
+We noticed earlier that the trend is that smoking is decreasing as time goes on. Naturally, we want to justify our hypothesis and be 100% sure that as time goes on, the number of smokers is going down as well. So let's see if we can reject the following null hypothesis: There is no relationship between the year and smoking rates. 
+
+```{r hypo_test}
+model <- lm(total_perc ~ YEAR, graph_df) # create model
+tidy(model)
+```
+
+This model represents the relationship between year and total percentage of smokers. In the table, the YEAR row has a p-value < .05, meaning that we can reject the null hypothesis that there is no relationship. This means that there is a relationship and we also know that it is a negative relationship since as time goes on, there is a -.01 decrease. We can sumrise our findings with the following statement: We found a statistically significant relationship between year and smoking population. On average, the percentage of smokers decreases by $-.01 \pm .0018$ per year. Using linear regression and some simple statistical analysis we are able to conclusively say that smoking has decreased over time. 
+
+# Conclusion
+
+In this tutorial, I hope you've learned the basics of modeling and analysis in R. We covered the whole data pipeline from importing data, to identifying trends, and finally running analysis to verify the significance of relationships betweeen variables. This tutorial was by no means meant to educate you on all the possibilites of EDA or machine learning, but to simply provide a primer for more advanced topics. 
+
+I hope you've found my tutorial both interesting and informative!
+
+
+
